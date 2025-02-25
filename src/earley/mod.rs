@@ -101,7 +101,7 @@ impl<'gram> ParseTreeIter<'gram> {
     }
     /// Pops [Traversal] from the provided queue, and follows
     /// the core [Earley parsing](https://en.wikipedia.org/wiki/Earley_parser) algorithm.
-    fn earley(&mut self) -> Option<TraversalId> {
+    fn earley(&mut self) -> Option<ParseTree<'gram>> {
         let Self {
             queue,
             completions,
@@ -200,7 +200,11 @@ impl<'gram> ParseTreeIter<'gram> {
                     }
 
                     if is_full_traversal {
-                        return Some(traversal_id);
+                        return Some(parse_tree(
+                            &self.traversal_tree,
+                            &self.grammar,
+                            traversal_id,
+                        ));
                     }
                 }
             }
@@ -213,12 +217,7 @@ impl<'gram> ParseTreeIter<'gram> {
 impl<'gram> Iterator for ParseTreeIter<'gram> {
     type Item = ParseTree<'gram>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.earley().map(|traversal_id| {
-            let _span = tracing::span!(tracing::Level::DEBUG, "next_parse_tree").entered();
-            let parse_tree = parse_tree(&self.traversal_tree, &self.grammar, traversal_id);
-            tracing::event!(tracing::Level::TRACE, "\n{parse_tree}");
-            parse_tree
-        })
+        self.earley()
     }
 }
 /// Key used for "incomplete" [`Traversal`] in [`CompletionMap`]
