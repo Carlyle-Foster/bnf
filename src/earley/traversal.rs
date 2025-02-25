@@ -136,13 +136,12 @@ impl<'gram> TraversalTree<'gram> {
     pub fn get_matched(&self, id: TraversalId) -> impl Iterator<Item = &TermMatch<'gram>> {
         TraversalMatchIter::new(id, self)
     }
-    fn predict_is_starting(
-        arena: &mut TraversalArena<'gram>,
-        tree_roots: &mut TreeRootMap,
-        input_range: &InputRange<'gram>,
+    fn _predict(
+        &mut self,
         production: &Production<'gram>,
+        input_range: &InputRange<'gram>,
         is_starting: bool,
-    ) -> TraversalId {
+    ) -> &Traversal {
         let _span =
             tracing::span!(tracing::Level::DEBUG, "traversal_tree_predict_is_starting").entered();
         let production_id = production.id;
@@ -151,19 +150,22 @@ impl<'gram> TraversalTree<'gram> {
             input_start: input_range.offset.total_len(),
         };
 
-        let traversal_root = tree_roots.entry(traversal_root_key).or_insert_with(|| {
-            let traversal = arena.push_with_id(|id| Traversal {
-                id,
-                production_id,
-                unmatched: &production.rhs.terms,
-                input_range: input_range.after(),
-                is_starting,
-                from: None,
+        let predicted_id = *self
+            .tree_roots
+            .entry(traversal_root_key)
+            .or_insert_with(|| {
+                let traversal = self.arena.push_with_id(|id| Traversal {
+                    id,
+                    production_id,
+                    unmatched: &production.rhs.terms,
+                    input_range: input_range.after(),
+                    is_starting,
+                    from: None,
+                });
+                traversal.id
             });
-            traversal.id
-        });
 
-        *traversal_root
+        self.arena.get(predicted_id).expect("valid traversal ID")
     }
     /// Same as [`TraversalTree::predict`] but flagging the [`Traversal`] as a parsing starting point
     pub fn predict_starting(
@@ -171,82 +173,54 @@ impl<'gram> TraversalTree<'gram> {
         production: &Production<'gram>,
         input_range: &InputRange<'gram>,
     ) -> &Traversal {
-        let is_starting = true;
-        let predicted_id = Self::predict_is_starting(
-            &mut self.arena,
-            &mut self.tree_roots,
-            input_range,
-            production,
-            is_starting,
-        );
-
-        self.get(predicted_id)
+        self._predict(production, input_range, true)
     }
     pub fn predict(
         &mut self,
         production: &Production<'gram>,
         input_range: &InputRange<'gram>,
     ) -> &Traversal {
-        let is_starting = false;
-        let predicted_id = Self::predict_is_starting(
-            &mut self.arena,
-            &mut self.tree_roots,
-            input_range,
-            production,
-            is_starting,
-        );
-
-        self.get(predicted_id)
+        self._predict(production, input_range, false)
     }
     pub fn match_term(&mut self, parent: TraversalId, term: TermMatch<'gram>) -> &Traversal {
         let _span = tracing::span!(tracing::Level::DEBUG, "match_term").entered();
-        fn inner<'gram>(
-            arena: &mut TraversalArena<'gram>,
-            edges: &mut TreeEdgeMap<'gram>,
-            parent: TraversalId,
-            term: TermMatch<'gram>,
-        ) -> TraversalId {
-            let parent = arena.get(parent).expect("valid parent traversal ID");
-            let input_range = match term {
-                TermMatch::Terminal(term) => parent.input_range.advance_by(term.len()),
-                TermMatch::Nonterminal(nonterminal_traversal_id) => {
-                    let nonterminal_traversal = arena
-                        .get(nonterminal_traversal_id)
-                        .expect("valid completed traversal ID");
+        let parent = self.arena.get(parent).expect("valid parent traversal ID");
+        let input_range = match term {
+            TermMatch::Terminal(term) => parent.input_range.advance_by(term.len()),
+            TermMatch::Nonterminal(nonterminal_traversal_id) => {
+                let nonterminal_traversal = self
+                    .arena
+                    .get(nonterminal_traversal_id)
+                    .expect("valid completed traversal ID");
 
-                    parent
-                        .input_range
-                        .advance_by(nonterminal_traversal.input_range.offset.len)
-                }
-            };
+                parent
+                    .input_range
+                    .advance_by(nonterminal_traversal.input_range.offset.len)
+            }
+        };
 
-            let parent_id = parent.id;
-            let production_id = parent.production_id;
-            let unmatched = parent
-                .unmatched
-                .get(1..)
-                .expect("parent traversal has at least one unmatched term");
-            let is_starting = parent.is_starting;
-            let from = TraversalEdge { term, parent_id };
+        let parent_id = parent.id;
+        let production_id = parent.production_id;
+        let unmatched = parent
+            .unmatched
+            .get(1..)
+            .expect("parent traversal has at least one unmatched term");
+        let is_starting = parent.is_starting;
+        let from = TraversalEdge { term, parent_id };
 
-            let matched = edges.entry(from).or_insert_with_key(|from| {
-                let traversal = arena.push_with_id(|id| Traversal {
-                    id,
-                    production_id,
-                    unmatched,
-                    input_range: input_range.clone(),
-                    is_starting,
-                    from: Some(from.clone()),
-                });
-                traversal.id
+        let matched_id = *self.edges.entry(from).or_insert_with_key(|from| {
+            let traversal = self.arena.push_with_id(|id| Traversal {
+                id,
+                production_id,
+                unmatched,
+                input_range: input_range.clone(),
+                is_starting,
+                from: Some(from.clone()),
             });
+            traversal.id
+        });
 
-            *matched
-        }
-
-        let matched_id = inner(&mut self.arena, &mut self.edges, parent, term);
-
-        self.get(matched_id)
+        self.arena.get(matched_id).expect("valid traversal ID")
     }
 }
 
