@@ -1,11 +1,6 @@
-mod augmented;
-mod bnf;
+mod match_tests;
 
 mod nom_xt;
-
-#[cfg(feature = "ABNF")]
-pub use augmented::ABNF;
-pub use bnf::BNF;
 
 use crate::expression::Expression;
 use crate::grammar::Grammar;
@@ -23,24 +18,17 @@ use nom::{
 };
 use nom_xt::xt_list_with_separator;
 
-pub trait Format {
-    fn nonterminal_delimiter() -> Option<(char, char)>;
-    fn production_separator() -> &'static str;
-    fn alternative_separator() -> char;
-}
-
-fn nonterminal<F: Format>(input: &str) -> IResult<&str, Term> {
-    let (input, nt) = match F::nonterminal_delimiter() {
-        Some((start, end)) => delimited(
-            complete::char(start),
-            take_till(|c: char| c == end),
-            complete::char(end),
+fn nonterminal(input: &str) -> IResult<&str, Term> {
+    let (input, nt) = if input.starts_with('<') {
+        delimited(
+            complete::char('<'),
+            take_till(|c: char| c == '>'),
+            complete::char('>'),
         )
-        .parse(input)?,
-        None => {
-            satisfy(|c: char| c.is_alphabetic()).parse(input)?;
-            take_till(|c: char| c.is_whitespace() || c == ')' || c == ']').parse(input)?
-        }
+        .parse(input)?
+    } else {
+        satisfy(|c: char| c.is_alphabetic()).parse(input)?;
+        take_till(|c: char| c.is_whitespace() || c == ')' || c == ']').parse(input)?
     };
 
     let (input, _) = whitespace_plus_comments(input).unwrap();
@@ -48,19 +36,19 @@ fn nonterminal<F: Format>(input: &str) -> IResult<&str, Term> {
     Ok((input, Term::Nonterminal(nt.to_string())))
 }
 
-fn prod_lhs<F: Format>(input: &str) -> IResult<&str, Term> {
-    let (input, nt) = nonterminal::<F>(input)?;
+fn prod_lhs(input: &str) -> IResult<&str, Term> {
+    let (input, nt) = nonterminal(input)?;
 
-    let (input, _) = tag(F::production_separator()).parse(input)?;
+    let (input, _) = alt((tag("::="), tag("="))).parse(input)?;
     //https://www.rfc-editor.org/rfc/rfc5234.html#section-3.3
-    let (input, _) = opt(complete::char(F::alternative_separator())).parse(input)?;
+    let (input, _) = opt(alt((complete::char('|'), complete::char('/')))).parse(input)?;
     let (input, _) = whitespace_plus_comments(input).unwrap();
 
     Ok((input, nt))
 }
 
-fn prod_rhs<F: Format>(input: &str) -> IResult<&str, Vec<Expression>> {
-    xt_list_with_separator(expression::<F>, expression_next::<F>).parse(input)
+fn prod_rhs(input: &str) -> IResult<&str, Vec<Expression>> {
+    xt_list_with_separator(expression, expression_next).parse(input)
 }
 
 pub fn terminal(input: &str) -> IResult<&str, Term> {
@@ -94,57 +82,49 @@ pub fn whitespace_plus_comments(mut input: &str) -> IResult<&str, char> {
     Ok((input, '\0'))
 }
 
-pub fn is_format_standard_bnf(input: &str) -> bool {
-    let (input, _) = whitespace_plus_comments(input).unwrap();
-    complete::char::<&str, nom::error::Error<&str>>('<')
-        .parse(input)
-        .is_ok()
-}
-
-pub fn term<F: Format>(input: &str) -> IResult<&str, Term> {
+pub fn term(input: &str) -> IResult<&str, Term> {
     alt((
         terminal,
-        nonterminal::<F>,
-        anonymous_nonterminal::<F>,
-        optional_anonymous_nonterminal::<F>,
+        nonterminal,
+        anonymous_nonterminal,
+        optional_anonymous_nonterminal,
     ))
     .parse(input)
 }
 
-pub fn expression_next<F: Format>(input: &str) -> IResult<&str, &str> {
-    let (input, _) = complete::char(F::alternative_separator()).parse(input)?;
+pub fn expression_next(input: &str) -> IResult<&str, &str> {
+    let (input, _) = alt((complete::char('|'), complete::char('/'))).parse(input)?;
     let (input, _) = whitespace_plus_comments(input).unwrap();
 
     Ok((input, ""))
 }
 
-pub fn expression<F: Format>(input: &str) -> IResult<&str, Expression> {
-    let (input, terms) =
-        many1(terminated(term::<F>, not(tag(F::production_separator())))).parse(input)?;
+pub fn expression(input: &str) -> IResult<&str, Expression> {
+    let (input, terms) = many1(terminated(term, not(alt((tag("::="), tag("=")))))).parse(input)?;
 
     Ok((input, Expression::from_parts(terms)))
 }
 
-pub fn production<F: Format>(input: &str) -> IResult<&str, Production> {
-    let (input, lhs) = prod_lhs::<F>(input)?;
-    let (input, rhs) = prod_rhs::<F>(input)?;
-    let (input, _) = alt((recognize(peek(eof)), recognize(peek(prod_lhs::<F>)))).parse(input)?;
+pub fn production(input: &str) -> IResult<&str, Production> {
+    let (input, lhs) = prod_lhs(input)?;
+    let (input, rhs) = prod_rhs(input)?;
+    let (input, _) = alt((recognize(peek(eof)), recognize(peek(prod_lhs)))).parse(input)?;
 
     Ok((input, Production::from_parts(lhs, rhs)))
 }
 
-pub fn anonymous_nonterminal<F: Format>(input: &str) -> IResult<&str, Term> {
+pub fn anonymous_nonterminal(input: &str) -> IResult<&str, Term> {
     let (input, rhs) =
-        delimited(complete::char('('), prod_rhs::<F>, complete::char(')')).parse(input)?;
+        delimited(complete::char('('), prod_rhs, complete::char(')')).parse(input)?;
 
     let (input, _) = whitespace_plus_comments(input).unwrap();
 
     Ok((input, Term::AnonymousNonterminal(rhs)))
 }
 
-pub fn optional_anonymous_nonterminal<F: Format>(input: &str) -> IResult<&str, Term> {
+pub fn optional_anonymous_nonterminal(input: &str) -> IResult<&str, Term> {
     let (input, mut rhs) =
-        delimited(complete::char('['), prod_rhs::<F>, complete::char(']')).parse(input)?;
+        delimited(complete::char('['), prod_rhs, complete::char(']')).parse(input)?;
 
     rhs.push(Expression::from_parts(vec![Term::Terminal("".to_owned())]));
 
@@ -153,15 +133,15 @@ pub fn optional_anonymous_nonterminal<F: Format>(input: &str) -> IResult<&str, T
     Ok((input, Term::AnonymousNonterminal(rhs)))
 }
 
-pub fn grammar<F: Format>(input: &str) -> IResult<&str, Grammar> {
+pub fn grammar(input: &str) -> IResult<&str, Grammar> {
     let (input, _) = whitespace_plus_comments(input)?;
-    production::<F>(input)?;
-    let (input, prods) = many1(production::<F>).parse(input)?;
+    production(input)?;
+    let (input, prods) = many1(production).parse(input)?;
     Ok((input, Grammar::from_parts(prods)))
 }
 
-pub fn grammar_complete<F: Format>(input: &str) -> IResult<&str, Grammar> {
-    all_consuming(grammar::<F>).parse(input)
+pub fn grammar_complete(input: &str) -> IResult<&str, Grammar> {
+    all_consuming(grammar).parse(input)
 }
 
 #[cfg(test)]

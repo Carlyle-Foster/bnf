@@ -1,23 +1,5 @@
-use super::Format;
-
-#[non_exhaustive]
-pub struct BNF;
-
-impl Format for BNF {
-    fn nonterminal_delimiter() -> Option<(char, char)> {
-        Some(('<', '>'))
-    }
-    fn production_separator() -> &'static str {
-        "::="
-    }
-    fn alternative_separator() -> char {
-        '|'
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::BNF;
     use crate::parsers::*;
 
     #[test]
@@ -25,7 +7,7 @@ mod tests {
         let input = "<nonterminal-pattern>";
         let expected = Term::Nonterminal("nonterminal-pattern".to_string());
 
-        let (_, actual) = nonterminal::<BNF>(input).unwrap();
+        let (_, actual) = nonterminal(input).unwrap();
         assert_eq!(expected, actual);
     }
 
@@ -37,7 +19,7 @@ mod tests {
             Term::Terminal("terminal-pattern".to_string()),
         ]);
 
-        let (_, actual) = expression::<BNF>(input).unwrap();
+        let (_, actual) = expression(input).unwrap();
         assert_eq!(expected, actual);
     }
 
@@ -55,7 +37,7 @@ mod tests {
             ],
         );
 
-        let (_, actual) = production::<BNF>(input).unwrap();
+        let (_, actual) = production(input).unwrap();
         assert_eq!(expected, actual);
     }
 
@@ -73,7 +55,7 @@ mod tests {
             ],
         )]);
 
-        let (_, actual) = grammar::<BNF>(input).unwrap();
+        let (_, actual) = grammar(input).unwrap();
         assert_eq!(expected, actual);
     }
 }
