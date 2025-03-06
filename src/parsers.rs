@@ -1,7 +1,3 @@
-mod match_tests;
-
-mod nom_xt;
-
 use crate::expression::Expression;
 use crate::grammar::Grammar;
 use crate::production::Production;
@@ -13,10 +9,10 @@ use nom::{
     bytes::complete::{tag, take_till, take_until},
     character::complete::{self, multispace0, satisfy},
     combinator::{all_consuming, eof, not, opt, peek, recognize},
+    error::ParseError,
     multi::many1,
     sequence::{delimited, preceded, terminated},
 };
-use nom_xt::xt_list_with_separator;
 
 fn nonterminal(input: &str) -> IResult<&str, Term> {
     let (input, nt) = if input.starts_with('<') {
@@ -49,6 +45,40 @@ fn prod_lhs(input: &str) -> IResult<&str, Term> {
 
 fn prod_rhs(input: &str) -> IResult<&str, Vec<Expression>> {
     xt_list_with_separator(expression, expression_next).parse(input)
+}
+
+///like `nom::many1` but it accepts a secend parser as an element separator
+pub fn xt_list_with_separator<I, F, D, E>(
+    mut parser: F,
+    mut delimiter: D,
+) -> impl Parser<I, Output = Vec<<F as Parser<I>>::Output>, Error = E>
+where
+    I: Clone + nom::Input + Copy,
+    F: Parser<I, Error = E>,
+    D: Parser<I, Error = E>,
+    E: ParseError<I>,
+{
+    move |mut input: I| {
+        let mut acc = vec![];
+        loop {
+            match parser.parse(input) {
+                Ok((i, o)) => {
+                    acc.push(o);
+                    input = i;
+                    match delimiter.parse(input) {
+                        Ok((i, _)) => {
+                            input = i;
+                            continue;
+                        }
+                        Err(nom::Err::Error(_)) => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok((input, acc))
+    }
 }
 
 pub fn terminal(input: &str) -> IResult<&str, Term> {
@@ -193,5 +223,70 @@ pub mod tests {
             .parse_input("bcbccbbcbcbcbbbbbbbbbbbbccc")
             .next()
             .unwrap();
+    }
+    #[test]
+    fn nonterminal_match() {
+        let input = "<nonterminal-pattern>";
+        let input_aug = "nonterminal-pattern";
+        let expected = Term::Nonterminal("nonterminal-pattern".to_string());
+
+        let (_, actual) = nonterminal(input).unwrap();
+        let (_, actual_aug) = nonterminal(input_aug).unwrap();
+        assert_eq!(expected, actual);
+        assert_eq!(expected, actual_aug);
+    }
+    #[test]
+    fn expression_match() {
+        let input = r#"<nonterminal-pattern> "terminal-pattern""#;
+        let input_aug = r#"nonterminal-pattern "terminal-pattern""#;
+        let expected = Expression::from_parts(vec![
+            Term::Nonterminal("nonterminal-pattern".to_string()),
+            Term::Terminal("terminal-pattern".to_string()),
+        ]);
+
+        let (_, actual) = expression(input).unwrap();
+        let (_, actual_aug) = expression(input_aug).unwrap();
+        assert_eq!(expected, actual);
+        assert_eq!(expected, actual_aug);
+    }
+    #[test]
+    fn production_match() {
+        let input = r#"<nonterminal-pattern> ::= <nonterminal-pattern> "terminal-pattern" | "terminal-pattern";\r\n"#;
+        let input_aug = r#"nonterminal-pattern = nonterminal-pattern "terminal-pattern" / "terminal-pattern";\r\n"#;
+        let expected = Production::from_parts(
+            Term::Nonterminal("nonterminal-pattern".to_string()),
+            vec![
+                Expression::from_parts(vec![
+                    Term::Nonterminal("nonterminal-pattern".to_string()),
+                    Term::Terminal("terminal-pattern".to_string()),
+                ]),
+                Expression::from_parts(vec![Term::Terminal("terminal-pattern".to_string())]),
+            ],
+        );
+
+        let (_, actual) = production(input).unwrap();
+        let (_, actual_aug) = production(input_aug).unwrap();
+        assert_eq!(expected, actual);
+        assert_eq!(expected, actual_aug);
+    }
+    #[test]
+    fn grammar_match() {
+        let input = r#"<nonterminal-pattern> ::= <nonterminal-pattern> "terminal-pattern" | "terminal-pattern";\r\n"#;
+        let input_aug = r#"nonterminal-pattern = nonterminal-pattern "terminal-pattern" / "terminal-pattern";\r\n"#;
+        let expected = Grammar::from_parts(vec![Production::from_parts(
+            Term::Nonterminal("nonterminal-pattern".to_string()),
+            vec![
+                Expression::from_parts(vec![
+                    Term::Nonterminal("nonterminal-pattern".to_string()),
+                    Term::Terminal("terminal-pattern".to_string()),
+                ]),
+                Expression::from_parts(vec![Term::Terminal("terminal-pattern".to_string())]),
+            ],
+        )]);
+
+        let (_, actual) = grammar(input).unwrap();
+        let (_, actual_aug) = grammar(input_aug).unwrap();
+        assert_eq!(expected, actual);
+        assert_eq!(expected, actual_aug);
     }
 }
