@@ -123,7 +123,7 @@ impl<'gram> ParseTreeIter<'gram> {
                 Some(nonterminal @ Term::Nonterminal(_)) => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Predict").entered();
 
-                    completions.insert_incomplete(traversal);
+                    completions.insert_incomplete(traversal, nonterminal);
 
                     let input_range = traversal.input_range.clone();
 
@@ -164,7 +164,7 @@ impl<'gram> ParseTreeIter<'gram> {
                 Some(anon @ Term::AnonymousNonterminal(_)) => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Predict_anon").entered();
 
-                    completions.insert_incomplete(traversal);
+                    completions.insert_incomplete(traversal, anon);
 
                     let input_range = traversal.input_range.clone();
 
@@ -278,17 +278,13 @@ impl<'gram> CompletionMap<'gram> {
         let key = CompletionKey::new_total(term, input_range);
         self.complete.get(&key).into_iter().flatten().cloned()
     }
-    pub fn insert_incomplete(&mut self, traversal: &Traversal<'gram>) {
+    pub fn insert_incomplete(&mut self, traversal: &Traversal<'gram>, unmatched: &'gram Term) {
         let _span = tracing::span!(tracing::Level::DEBUG, "insert_incomplete").entered();
 
-        match traversal.next_unmatched() {
-            Some(Term::Terminal(_)) => {} // Terminals are irrelevant to completions
-            Some(unmatched) => {
-                let key = CompletionKey::new_total(unmatched, &traversal.input_range);
-                self.incomplete.entry(key).or_default().insert(traversal.id);
-            }
-            None => unreachable!(),
-        }
+        assert!(!matches!(unmatched, Term::Terminal(_)));
+
+        let key = CompletionKey::new_total(unmatched, &traversal.input_range);
+        self.incomplete.entry(key).or_default().insert(traversal.id);
     }
     pub fn insert_complete(&mut self, traversal: &Traversal<'gram>, lhs: &'gram Term) {
         let _span = tracing::span!(tracing::Level::DEBUG, "insert_complete").entered();
