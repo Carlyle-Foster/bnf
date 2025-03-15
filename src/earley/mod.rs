@@ -123,8 +123,7 @@ impl<'gram> ParseTreeIter<'gram> {
                 Some(nonterminal @ Term::Nonterminal(_)) => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Predict").entered();
 
-                    let lhs = grammar.get_production_by_id(traversal.production_id).lhs;
-                    completions.insert(traversal, lhs);
+                    completions.insert_incomplete(traversal);
 
                     let input_range = traversal.input_range.clone();
 
@@ -165,8 +164,7 @@ impl<'gram> ParseTreeIter<'gram> {
                 Some(anon @ Term::AnonymousNonterminal(_)) => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Predict_anon").entered();
 
-                    let lhs = grammar.get_production_by_id(traversal.production_id).lhs;
-                    completions.insert(traversal, lhs);
+                    completions.insert_incomplete(traversal);
 
                     let input_range = traversal.input_range.clone();
 
@@ -197,7 +195,7 @@ impl<'gram> ParseTreeIter<'gram> {
                     let is_full_traversal =
                         traversal.is_starting && traversal.input_range.is_complete();
                     let lhs = grammar.get_production_by_id(traversal.production_id).lhs;
-                    completions.insert(traversal, lhs);
+                    completions.insert_complete(traversal, lhs);
 
                     for incomplete_traversal_id in completions.get_incomplete(lhs, traversal) {
                         let term_match = TermMatch::Nonterminal(traversal_id);
@@ -280,25 +278,25 @@ impl<'gram> CompletionMap<'gram> {
         let key = CompletionKey::new_total(term, input_range);
         self.complete.get(&key).into_iter().flatten().cloned()
     }
-    pub fn insert(&mut self, traversal: &Traversal<'gram>, lhs: &'gram Term) {
-        let _span = tracing::span!(tracing::Level::DEBUG, "insert").entered();
+    pub fn insert_incomplete(&mut self, traversal: &Traversal<'gram>) {
+        let _span = tracing::span!(tracing::Level::DEBUG, "insert_incomplete").entered();
+
         match traversal.next_unmatched() {
-            Some(Term::Terminal(_)) => {
-                // do nothing, because terminals are irrelevant to completion
-            }
-            Some(unmatched @ Term::Nonterminal(_)) => {
+            Some(Term::Terminal(_)) => {} // Terminals are irrelevant to completions
+            Some(unmatched) => {
                 let key = CompletionKey::new_total(unmatched, &traversal.input_range);
                 self.incomplete.entry(key).or_default().insert(traversal.id);
             }
-            Some(unmatched @ Term::AnonymousNonterminal(_)) => {
-                let key = CompletionKey::new_total(unmatched, &traversal.input_range);
-                self.incomplete.entry(key).or_default().insert(traversal.id);
-            }
-            None => {
-                let key = CompletionKey::new_start(lhs, &traversal.input_range);
-                self.complete.entry(key).or_default().insert(traversal.id);
-            }
+            None => unreachable!(),
         }
+    }
+    pub fn insert_complete(&mut self, traversal: &Traversal<'gram>, lhs: &'gram Term) {
+        let _span = tracing::span!(tracing::Level::DEBUG, "insert_complete").entered();
+
+        assert!(traversal.next_unmatched().is_none());
+
+        let key = CompletionKey::new_start(lhs, &traversal.input_range);
+        self.complete.entry(key).or_default().insert(traversal.id);
     }
 }
 
