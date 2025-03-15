@@ -117,13 +117,13 @@ impl<'gram> ParseTreeIter<'gram> {
                 "earley queue pop: {:#?}",
                 traversal_tree.get(traversal_id)
             );
+            let traversal = traversal_tree.get(traversal_id);
+
             match traversal_tree.get_matching(traversal_id) {
                 Some(nonterminal @ Term::Nonterminal(_)) => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Predict").entered();
 
-                    let traversal = traversal_tree.get(traversal_id);
                     let lhs = grammar.get_production_by_id(traversal.production_id).lhs;
-
                     completions.insert(traversal, lhs);
 
                     let input_range = traversal.input_range.clone();
@@ -151,7 +151,6 @@ impl<'gram> ParseTreeIter<'gram> {
                 }
                 Some(Term::Terminal(term)) => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Scan").entered();
-                    let traversal = traversal_tree.get(traversal_id);
                     if traversal.input_range.next().starts_with(term) {
                         let term_match = TermMatch::Terminal(term);
                         let scanned = traversal_tree.match_term(traversal_id, term_match);
@@ -166,9 +165,7 @@ impl<'gram> ParseTreeIter<'gram> {
                 Some(anon @ Term::AnonymousNonterminal(_)) => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Predict_anon").entered();
 
-                    let traversal = traversal_tree.get(traversal_id);
                     let lhs = grammar.get_production_by_id(traversal.production_id).lhs;
-
                     completions.insert(traversal, lhs);
 
                     let input_range = traversal.input_range.clone();
@@ -197,11 +194,9 @@ impl<'gram> ParseTreeIter<'gram> {
                 None => {
                     let _span = tracing::span!(tracing::Level::DEBUG, "Complete").entered();
 
-                    let traversal = traversal_tree.get(traversal_id);
                     let is_full_traversal =
                         traversal.is_starting && traversal.input_range.is_complete();
                     let lhs = grammar.get_production_by_id(traversal.production_id).lhs;
-
                     completions.insert(traversal, lhs);
 
                     for incomplete_traversal_id in completions.get_incomplete(lhs, traversal) {
