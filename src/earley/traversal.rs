@@ -141,7 +141,7 @@ impl<'gram> TraversalTree<'gram> {
         production: &Production<'gram>,
         input_range: &InputRange<'gram>,
         is_starting: bool,
-    ) -> &Traversal {
+    ) -> TraversalId {
         let _span =
             tracing::span!(tracing::Level::DEBUG, "traversal_tree_predict_is_starting").entered();
         let production_id = production.id;
@@ -165,24 +165,24 @@ impl<'gram> TraversalTree<'gram> {
                 traversal.id
             });
 
-        self.arena.get(predicted_id).expect("valid traversal ID")
+        predicted_id
     }
     /// Same as [`TraversalTree::predict`] but flagging the [`Traversal`] as a parsing starting point
     pub fn predict_starting(
         &mut self,
         production: &Production<'gram>,
         input_range: &InputRange<'gram>,
-    ) -> &Traversal {
+    ) -> TraversalId {
         self._predict(production, input_range, true)
     }
     pub fn predict(
         &mut self,
         production: &Production<'gram>,
         input_range: &InputRange<'gram>,
-    ) -> &Traversal {
+    ) -> TraversalId {
         self._predict(production, input_range, false)
     }
-    pub fn match_term(&mut self, parent: TraversalId, term: TermMatch<'gram>) -> &Traversal {
+    pub fn match_term(&mut self, parent: TraversalId, term: TermMatch<'gram>) -> TraversalId {
         let _span = tracing::span!(tracing::Level::DEBUG, "match_term").entered();
         let parent = self.arena.get(parent).expect("valid parent traversal ID");
         let input_range = match term {
@@ -220,7 +220,7 @@ impl<'gram> TraversalTree<'gram> {
             traversal.id
         });
 
-        self.arena.get(matched_id).expect("valid traversal ID")
+        matched_id
     }
 }
 
@@ -256,7 +256,8 @@ mod tests {
         let (grammar, input, mut tree) = traversal_test_setup(&grammar, "GATTACA");
         let production = grammar.productions_iter().next().unwrap();
 
-        let predicted = tree.predict(production, &input);
+        let id = tree.predict(production, &input);
+        let predicted = tree.get(id);
 
         assert_eq!(&production.rhs.terms, predicted.unmatched);
     }
@@ -267,8 +268,8 @@ mod tests {
         let (grammar, input, mut tree) = traversal_test_setup(&grammar, "GATTACA");
         let production = grammar.productions_iter().next().unwrap();
 
-        let first = tree.predict(production, &input).id;
-        let again = tree.predict(production, &input).id;
+        let first = tree.predict(production, &input);
+        let again = tree.predict(production, &input);
 
         assert_eq!(first, again);
     }
@@ -278,10 +279,11 @@ mod tests {
         let grammar = "<start> ::= 'A'".parse().unwrap();
         let (grammar, input, mut tree) = traversal_test_setup(&grammar, "AAAA");
         let production = grammar.productions_iter().next().unwrap();
-        let prediction = tree.predict(production, &input).id;
+        let prediction = tree.predict(production, &input);
         let term_match = TermMatch::Terminal("A");
 
-        let scanned = tree.match_term(prediction, term_match);
+        let id = tree.match_term(prediction, term_match);
+        let scanned = tree.get(id);
 
         assert_eq!(scanned.unmatched, production.rhs.terms.get(1..).unwrap());
     }
@@ -291,12 +293,12 @@ mod tests {
         let grammar = "<start> ::= 'A'".parse().unwrap();
         let (grammar, input, mut tree) = traversal_test_setup(&grammar, "AAAA");
         let production = grammar.productions_iter().next().unwrap();
-        let prediction = tree.predict(production, &input).id;
+        let prediction = tree.predict(production, &input);
 
         let term_match = TermMatch::Terminal("A");
 
-        let first = tree.match_term(prediction, term_match.clone()).id;
-        let again = tree.match_term(prediction, term_match.clone()).id;
+        let first = tree.match_term(prediction, term_match.clone());
+        let again = tree.match_term(prediction, term_match.clone());
 
         assert_eq!(first, again);
     }
@@ -306,12 +308,13 @@ mod tests {
         let grammar = "<start> ::= 'A' | 'B' | 'C'".parse().unwrap();
         let (grammar, input, mut tree) = traversal_test_setup(&grammar, "ABC");
         let production = grammar.productions_iter().next().unwrap();
-        let prediction = tree.predict(production, &input).id;
+        let prediction = tree.predict(production, &input);
 
         // build match tree of <start> -> 'A', <start> -> 'B', <start> -> 'C'
         for term_match in ["A", "B", "C"] {
             let term_match = TermMatch::Terminal(term_match);
-            let traversal = tree.match_term(prediction, term_match);
+            let id = tree.match_term(prediction, term_match);
+            let traversal = tree.get(id);
             assert_eq!(traversal.next_unmatched(), None);
         }
     }

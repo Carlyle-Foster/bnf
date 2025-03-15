@@ -41,7 +41,7 @@ impl TraversalQueue {
     ) {
         for starting_prod in grammar.get_productions_by_lhs(starting_term) {
             let traversal = traversal_tree.predict_starting(starting_prod, input);
-            self.push_back(traversal.id);
+            self.push_back(traversal);
         }
     }
 }
@@ -130,8 +130,12 @@ impl<'gram> ParseTreeIter<'gram> {
 
                     for production in grammar.get_productions_by_lhs(nonterminal) {
                         let predicted = traversal_tree.predict(production, &input_range);
-                        tracing::event!(tracing::Level::TRACE, "predicted: {predicted:#?}");
-                        queue.push_back(predicted.id);
+                        tracing::event!(
+                            tracing::Level::TRACE,
+                            "predicted: {:#?}",
+                            traversal_tree.get(predicted),
+                        );
+                        queue.push_back(predicted);
                     }
 
                     for completed in completions.get_complete(nonterminal, &input_range) {
@@ -139,9 +143,10 @@ impl<'gram> ParseTreeIter<'gram> {
                         let prior_completed = traversal_tree.match_term(traversal_id, term_match);
                         tracing::event!(
                             tracing::Level::TRACE,
-                            "prior_completed: {prior_completed:#?}"
+                            "prior_completed: {:#?}",
+                            traversal_tree.get(prior_completed),
                         );
-                        queue.push_back(prior_completed.id);
+                        queue.push_back(prior_completed);
                     }
                 }
                 Some(Term::Terminal(term)) => {
@@ -150,8 +155,12 @@ impl<'gram> ParseTreeIter<'gram> {
                     if traversal.input_range.next().starts_with(term) {
                         let term_match = TermMatch::Terminal(term);
                         let scanned = traversal_tree.match_term(traversal_id, term_match);
-                        tracing::event!(tracing::Level::TRACE, "scanned: {scanned:#?}");
-                        queue.push_back(scanned.id);
+                        tracing::event!(
+                            tracing::Level::TRACE,
+                            "scanned: {:#?}",
+                            traversal_tree.get(scanned)
+                        );
+                        queue.push_back(scanned);
                     }
                 }
                 Some(anon @ Term::AnonymousNonterminal(_)) => {
@@ -166,8 +175,12 @@ impl<'gram> ParseTreeIter<'gram> {
 
                     for production in grammar.get_productions_by_lhs(anon) {
                         let predicted = traversal_tree.predict(production, &input_range);
-                        tracing::event!(tracing::Level::TRACE, "predicted: {predicted:#?}");
-                        queue.push_back(predicted.id);
+                        tracing::event!(
+                            tracing::Level::TRACE,
+                            "predicted: {:#?}",
+                            traversal_tree.get(predicted),
+                        );
+                        queue.push_back(predicted);
                     }
 
                     for completed in completions.get_complete(anon, &input_range) {
@@ -175,9 +188,10 @@ impl<'gram> ParseTreeIter<'gram> {
                         let prior_completed = traversal_tree.match_term(traversal_id, term_match);
                         tracing::event!(
                             tracing::Level::TRACE,
-                            "prior_completed: {prior_completed:#?}"
+                            "prior_completed: {:#?}",
+                            traversal_tree.get(prior_completed),
                         );
-                        queue.push_back(prior_completed.id);
+                        queue.push_back(prior_completed);
                     }
                 }
                 None => {
@@ -195,8 +209,12 @@ impl<'gram> ParseTreeIter<'gram> {
                         let completed =
                             traversal_tree.match_term(incomplete_traversal_id, term_match);
 
-                        tracing::event!(tracing::Level::TRACE, "completed: {completed:#?}");
-                        queue.push_back(completed.id);
+                        tracing::event!(
+                            tracing::Level::TRACE,
+                            "completed: {:#?}",
+                            traversal_tree.get(completed),
+                        );
+                        queue.push_back(completed);
                     }
 
                     if is_full_traversal {
